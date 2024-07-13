@@ -1,6 +1,7 @@
 package com.manosprojects.reorderablelazycolumn
 
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,15 +25,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.channels.Channel
 
 /*
-Making the items reorder
+Handling overscroll
  */
 
 @Composable
 fun MyList() {
-    var list1 by remember { mutableStateOf(List(5) { it }) }
-    val list2 by remember { mutableStateOf(List(5) { it + 5 }) }
+    var list1 by remember { mutableStateOf(List(20) { it }) }
+    val list2 by remember { mutableStateOf(List(20) { it + 20 }) }
     val stateList = rememberLazyListState()
 
     var draggingItemIndex: Int? by remember {
@@ -48,6 +51,15 @@ fun MyList() {
 
     val onMove = { fromIndex: Int, toIndex: Int ->
         list1 = list1.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
+
+    val scrollChannel = Channel<Float>()
+
+    LaunchedEffect(stateList) {
+        while (true) {
+            val diff = scrollChannel.receive()
+            stateList.scrollBy(diff)
+        }
     }
 
     LazyColumn(
@@ -91,6 +103,23 @@ fun MyList() {
                             draggingItemIndex = targetIndex
                             delta += currentDraggingItem.offset - targetItem.offset
                             draggingItem = targetItem
+                        } else {
+                            val startOffsetToTop =
+                                startOffset - stateList.layoutInfo.viewportStartOffset
+                            val endOffsetToBottom =
+                                endOffset - stateList.layoutInfo.viewportEndOffset
+                            val scroll =
+                                when {
+                                    startOffsetToTop < 0 -> startOffsetToTop.coerceAtMost(0f)
+                                    endOffsetToBottom > 0 -> endOffsetToBottom.coerceAtLeast(0f)
+                                    else -> 0f
+                                }
+                            val canScrollDown =
+                                currentDraggingItemIndex != list1.size - 1 && endOffsetToBottom > 0
+                            val canScrollUp = currentDraggingItemIndex != 0 && startOffsetToTop < 0
+                            if (scroll != 0f && (canScrollUp || canScrollDown)) {
+                                scrollChannel.trySend(scroll)
+                            }
                         }
                     },
                     onDragEnd = {
