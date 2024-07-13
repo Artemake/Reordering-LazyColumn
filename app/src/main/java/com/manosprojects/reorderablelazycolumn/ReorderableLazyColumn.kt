@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
@@ -24,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 
 /*
-Making only the items in the first section move via drag and drop
+Making the items reorder
  */
 
 @Composable
@@ -41,6 +42,14 @@ fun MyList() {
         mutableFloatStateOf(0f)
     }
 
+    var draggingItem: LazyListItemInfo? by remember {
+        mutableStateOf(null)
+    }
+
+    val onMove = { fromIndex: Int, toIndex: Int ->
+        list1 = list1.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
+
     LazyColumn(
         modifier = Modifier
             .pointerInput(key1 = stateList) {
@@ -50,6 +59,7 @@ fun MyList() {
                             .firstOrNull { item -> offset.y.toInt() in item.offset..(item.offset + item.size) }
                             ?.also {
                                 (it.contentType as? DraggableItem)?.let { draggableItem ->
+                                    draggingItem = it
                                     draggingItemIndex = draggableItem.index
                                 }
                             }
@@ -57,12 +67,39 @@ fun MyList() {
                     onDrag = { change, dragAmount ->
                         change.consume()
                         delta += dragAmount.y
+
+                        val currentDraggingItemIndex =
+                            draggingItemIndex ?: return@detectDragGesturesAfterLongPress
+                        val currentDraggingItem =
+                            draggingItem ?: return@detectDragGesturesAfterLongPress
+
+                        val startOffset = currentDraggingItem.offset + delta
+                        val endOffset =
+                            currentDraggingItem.offset + currentDraggingItem.size + delta
+                        val middleOffset = startOffset + (endOffset - startOffset) / 2
+
+                        val targetItem =
+                            stateList.layoutInfo.visibleItemsInfo.find { item ->
+                                middleOffset.toInt() in item.offset..item.offset + item.size &&
+                                        currentDraggingItem.index != item.index &&
+                                        item.contentType is DraggableItem
+                            }
+
+                        if (targetItem != null) {
+                            val targetIndex = (targetItem.contentType as DraggableItem).index
+                            onMove(currentDraggingItemIndex, targetIndex)
+                            draggingItemIndex = targetIndex
+                            delta += currentDraggingItem.offset - targetItem.offset
+                            draggingItem = targetItem
+                        }
                     },
                     onDragEnd = {
+                        draggingItem = null
                         draggingItemIndex = null
                         delta = 0f
                     },
                     onDragCancel = {
+                        draggingItem = null
                         draggingItemIndex = null
                         delta = 0f
                     },
@@ -78,8 +115,7 @@ fun MyList() {
 
         itemsIndexed(
             items = list1,
-            contentType = { index, _ -> DraggableItem(index = index) },
-        ) { index, item ->
+            contentType = { index, _ -> DraggableItem(index = index) }) { index, item ->
             val modifier = if (draggingItemIndex == index) {
                 Modifier
                     .zIndex(1f)
